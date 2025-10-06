@@ -7,13 +7,11 @@ sys.path.insert(0, str(repo_root))
 
 
 def test_basic_operations() -> None:
-    """Проверка базовых выражений."""
     assert evaluate_rpn_input("3 4 2 * +") == 11
     assert evaluate_rpn_input("5 1 2 + 4 * + 3 -") == 14
 
 
 def test_functions_and_unary() -> None:
-    """Проверка встроенных функций и унарных операторов."""
     assert evaluate_rpn_input("2 3 pow") == 8
     assert evaluate_rpn_input("1 5 3 max3") == 5
     assert evaluate_rpn_input("9 sqrt") == 3.0
@@ -21,47 +19,40 @@ def test_functions_and_unary() -> None:
 
 
 def test_int_operations() -> None:
-    """Тестирование операций // и %."""
     assert evaluate_rpn_input("7 2 //") == 3
     assert evaluate_rpn_input("10 3 %") == 1
 
 
 def test_division_by_zero() -> None:
-    """Деление на ноль должно вызывать исключение."""
     for expr in ["5 0 /", "5 0 //", "5 0 %"]:
         with pytest.raises(CalculatorError):
             evaluate_rpn_input(expr)
 
 
 def test_not_enough_operands() -> None:
-    """Недостаток аргументов."""
     for expr in ["2 +", "sqrt"]:
         with pytest.raises(CalculatorError):
             evaluate_rpn_input(expr)
 
 
 def test_extra_elements() -> None:
-    """Выражение должно оставлять одно значение в стеке."""
     with pytest.raises(CalculatorError):
         evaluate_rpn_input("1 2")
 
 
 def test_unknown_tokens() -> None:
-    """Некорректные токены должны приводить к ошибке."""
     for expr in ["abc", "?"]:
         with pytest.raises(CalculatorError):
             evaluate_rpn_input(expr)
 
 
 def test_wrong_number_args() -> None:
-    """Проверка неправильного количества аргументов."""
     for expr in ["1 max0", "1 2 min10000"]:
         with pytest.raises(CalculatorError):
             evaluate_rpn_input(expr)
 
 
 def test_invalid_types_for_int_ops() -> None:
-    """// и % не работают с float."""
     for expr in ["7.5 2 //", "7.5 2 %"]:
         with pytest.raises(CalculatorError):
             evaluate_rpn_input(expr)
