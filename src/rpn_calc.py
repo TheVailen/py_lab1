@@ -195,11 +195,11 @@ def evaluate_rpn_input(rpn_expression: str) -> Any:
 
         text = rpn_expression.strip()
 
-        # Проверяем, что выражение заключено в скобки
+        # Автоматически добавляем внешние скобки если их нет
         if not (text.startswith("(") and text.endswith(")")):
-            raise CalculatorError("Выражение должно быть заключено в круглые скобки.")
+            text = f"({text})"
 
-        # Убираем внешние скобки и разбиваем выражение на токены
+        # Извлекаем содержимое скобок и токенизируем
         inner_text = text[1:-1].strip()
         tokens = _tokenize_expression(inner_text)
 
