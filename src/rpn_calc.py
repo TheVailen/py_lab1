@@ -6,7 +6,6 @@ from src.constants import BUILTIN_FUNCTIONS
 from src.constants import ALLOWED_OPERATORS
 
 
-
 class CalculatorError(Exception):
     """Общее исключение, выбрасываемое калькулятором при ошибках."""
     pass
@@ -14,6 +13,69 @@ class CalculatorError(Exception):
 
 _NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 _IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _find_matching_parenthesis(expression: str, start: int) -> int:
+    """Находит позицию закрывающей скобки для открывающей на позиции start."""
+    depth = 1
+    pos = start + 1
+    while pos < len(expression) and depth > 0:
+        if expression[pos] == '(':
+            depth += 1
+        elif expression[pos] == ')':
+            depth -= 1
+        pos += 1
+    if depth == 0:
+        return pos - 1
+    raise CalculatorError("Несбалансированные скобки")
+
+
+def _tokenize_expression(expression: str) -> List[str]:
+    """Разбивает выражение на токены, сохраняя вложенные выражения."""
+    tokens = []
+    i = 0
+    length = len(expression)
+
+    while i < length:
+        char = expression[i]
+
+        if char.isspace():
+            i += 1
+            continue
+
+        # Если встретили '(', ищем соответствующую ')'
+        if char == '(':
+            end = _find_matching_parenthesis(expression, i)
+            tokens.append(expression[i:end + 1])
+            i = end + 1
+            continue
+
+        if char.isdigit() or (char == '-' and i + 1 < length and expression[i + 1].isdigit()):
+            start = i
+            i += 1
+            while i < length and (expression[i].isdigit() or expression[i] == '.'):
+                i += 1
+            tokens.append(expression[start:i])
+            continue
+
+        if char in ALLOWED_OPERATORS or char.isalpha():
+            start = i
+            i += 1
+            while i < length and (expression[i] in ALLOWED_OPERATORS or
+                                 expression[i].isalnum() or expression[i] == '_'):
+                i += 1
+            tokens.append(expression[start:i])
+            continue
+
+        # Унарные символы ($ — унарный плюс, ~ — унарный минус)
+        if char in ('$', '~'):
+            tokens.append(char)
+            i += 1
+            continue
+
+        raise CalculatorError(f"Неизвестный символ: {char!r}")
+
+    return tokens
 
 
 def _call_builtin(name: str, args: List[Any]) -> Any:
@@ -69,6 +131,62 @@ def _apply_operator(a: Any, b: Any, op: str) -> Any:
     raise CalculatorError(f"Неизвестный оператор: {op!r}")
 
 
+def _evaluate_tokens(tokens: List[str]) -> Any:
+    """Рекурсивно вычисляет выражение из токенов."""
+    stack: List[Any] = []
+
+    for token in tokens:
+        # Вложенное выражение — рекурсивный вызов evaluate_rpn_input()
+        if token.startswith('(') and token.endswith(')'):
+            result = evaluate_rpn_input(token)
+            stack.append(result)
+            continue
+
+        if _NUMBER_RE.fullmatch(token):
+            value = float(token) if "." in token else int(token)
+            stack.append(value)
+            continue
+
+        if token in ("$", "~"):
+            if not stack:
+                raise CalculatorError("Недостаточно операндов для унарной операции")
+            a = stack.pop()
+            stack.append(+a if token == "$" else -a)
+            continue
+
+        if token in ALLOWED_OPERATORS:
+            if len(stack) < 2:
+                raise CalculatorError(f"Недостаточно операндов для оператора {token}")
+            b = stack.pop()
+            a = stack.pop()
+            stack.append(_apply_operator(a, b, token))
+            continue
+
+        if token in BUILTIN_FUNCTIONS:
+            min_args, max_args = BUILTIN_FUNCTIONS[token]
+
+            if max_args > min_args:
+                if len(stack) < min_args:
+                    raise CalculatorError(f"Недостаточно аргументов для функции {token!r}")
+                num_args = min(len(stack), max_args)
+            else:
+                if len(stack) < min_args:
+                    raise CalculatorError(f"Недостаточно аргументов для функции {token!r}")
+                num_args = min_args
+
+            args = [stack.pop() for _ in range(num_args)][::-1]
+            stack.append(_call_builtin(token, args))
+            continue
+
+        raise CalculatorError(f"Неизвестный токен: {token!r}")
+
+    # После вычисления в стеке должно остаться ровно одно значение
+    if len(stack) != 1:
+        raise CalculatorError("Неправильное выражение: стек не свёлся к одному значению")
+
+    return stack[0]
+
+
 def evaluate_rpn_input(rpn_expression: str) -> Any:
     """Вычисляет выражение, записанное в обратной польской нотации (RPN)."""
     try:
@@ -76,49 +194,21 @@ def evaluate_rpn_input(rpn_expression: str) -> Any:
             raise CalculatorError("Входное выражение должно быть строкой.")
 
         text = rpn_expression.strip()
+
+        # Проверяем, что выражение заключено в скобки
         if not (text.startswith("(") and text.endswith(")")):
             raise CalculatorError("Выражение должно быть заключено в круглые скобки.")
 
-        text = text[1:-1].strip()
-        parts = text.split()
-        stack: List[Any] = []
+        # Убираем внешние скобки и разбиваем выражение на токены
+        inner_text = text[1:-1].strip()
+        tokens = _tokenize_expression(inner_text)
 
-        for part in parts:
-            if _NUMBER_RE.fullmatch(part):
-                value = float(part) if "." in part else int(part)
-                stack.append(value)
-                continue
-
-            if part in ("u+", "u-"):
-                a = stack.pop()
-                stack.append(+a if part == "u+" else -a)
-                continue
-
-            if part in ALLOWED_OPERATORS:
-                b = stack.pop()
-                a = stack.pop()
-                stack.append(_apply_operator(a, b, part))
-                continue
-
-            if part in BUILTIN_FUNCTIONS:
-                num_args = BUILTIN_FUNCTIONS[part][1]
-                if len(stack) < num_args:
-                    raise CalculatorError(f"Недостаточно аргументов для функции {part!r}.")
-                args = [stack.pop() for _ in range(num_args)][::-1]
-                stack.append(_call_builtin(part, args))
-                continue
-
-            raise CalculatorError(f"Неизвестный токен: {part!r}")
-
-        if len(stack) != 1:
-            raise CalculatorError("Неправильное выражение: стек не свёлся к одному значению.")
-
-        return stack[0]
+        return _evaluate_tokens(tokens)
 
     except IndexError:
-        raise CalculatorError("Недостаточно операндов для операции.")
+        raise CalculatorError("Недостаточно операндов для операции")
     except ZeroDivisionError:
-        raise CalculatorError("Деление на ноль.")
+        raise CalculatorError("Деление на ноль")
     except CalculatorError:
         raise
     except Exception as exc:
